@@ -1,4 +1,5 @@
 export type QCStatus = 'PASS' | 'REJECT';
+export type InspectionType = 'QC_PRODUCT' | 'MACHINE_CHECK';
 
 export interface QCListEntry {
   issues: string[];
@@ -9,6 +10,7 @@ export interface QCResult {
   id: string;
   inspectorId: string;
   ticketStatus: 'OPEN' | 'RESOLVED' | 'ARCHIVED';
+  inspectionType: InspectionType;
   timestamp: string;
   status: QCStatus;
   confidence: number;

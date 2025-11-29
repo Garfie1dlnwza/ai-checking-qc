@@ -34,12 +34,28 @@ export function ReportsView({ history, technicians, generatePDF }: ReportsViewPr
                 {new Date(h.timestamp).toLocaleString()}
               </td>
               <td className="p-4">
-                <span className={clsx("px-2 py-1 rounded text-xs font-bold", h.status === "PASS" ? "text-green-600 bg-green-50" : "text-red-600 bg-red-50")}>
-                  {h.status}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={clsx("px-2 py-1 rounded text-xs font-bold", h.status === "PASS" ? "text-green-600 bg-green-50" : "text-red-600 bg-red-50")}>
+                    {h.status}
+                  </span>
+                  <span
+                    className={clsx(
+                      "px-2 py-0.5 rounded-full text-[11px] font-bold border",
+                      h.inspectionType === "MACHINE_CHECK"
+                        ? "bg-amber-50 text-amber-700 border-amber-200"
+                        : "bg-blue-50 text-blue-700 border-blue-200"
+                    )}
+                  >
+                    {h.inspectionType === "MACHINE_CHECK"
+                      ? "ตรวจสอบเครื่องจักร"
+                      : "QC Product"}
+                  </span>
+                </div>
               </td>
               <td className="p-4 text-xs font-mono text-slate-500">
-                {h.temperature}°C | {h.noise_level}dB
+                {h.inspectionType === "MACHINE_CHECK"
+                  ? `${h.temperature}°C | ${h.noise_level}dB`
+                  : "N/A"}
               </td>
               <td className="p-4 text-xs text-slate-600">
                 {technicians.find((t) => t.id === h.inspectorId)?.name || "System"}

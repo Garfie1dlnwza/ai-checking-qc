@@ -17,7 +17,7 @@ import {
   Thermometer,
   Wrench,
 } from "lucide-react";
-import { QCResult } from "@/types/qc";
+import { QCResult, InspectionType } from "@/types/qc";
 
 interface MonitorViewProps {
   capturedFrame: string | null;
@@ -37,6 +37,8 @@ interface MonitorViewProps {
   isVideoProcessing: boolean;
   toggleVideoProcessing: () => void;
   videoRef: RefObject<HTMLVideoElement>;
+  inspectionType: InspectionType;
+  setInspectionType: (type: InspectionType) => void;
 }
 
 export function MonitorView({
@@ -57,7 +59,15 @@ export function MonitorView({
   isVideoProcessing,
   toggleVideoProcessing,
   videoRef,
+  inspectionType,
+  setInspectionType,
 }: MonitorViewProps) {
+  const statusInspectionType =
+    latestResult?.inspectionType ?? inspectionType;
+  const inspectionLabel =
+    statusInspectionType === "QC_PRODUCT"
+      ? "QC Product"
+      : "ตรวจสอบเครื่องจักร";
   return (
     <div className="animate-in fade-in duration-300">
       <div className="grid grid-cols-12 gap-6 h-[600px]">
@@ -219,29 +229,66 @@ export function MonitorView({
         {/* Right: Sensors */}
         <div className="col-span-4 flex flex-col gap-4 h-full">
           <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-            <h3 className="text-slate-500 text-xs font-bold uppercase mb-3 flex items-center gap-2">
-              <Activity size={14} /> Real-time Sensor Telemetry
-            </h3>
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div
-                className={clsx(
-                  "p-3 rounded-xl border flex flex-col items-center",
-                  liveTemp > 80 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-100"
-                )}
-              >
-                <Thermometer size={16} className={liveTemp > 80 ? "text-red-500" : "text-slate-400"} />
-                <span className="text-2xl font-bold font-mono mt-1">{liveTemp}°C</span>
-              </div>
-              <div
-                className={clsx(
-                  "p-3 rounded-xl border flex flex-col items-center",
-                  liveNoise > 90 ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-100"
-                )}
-              >
-                <Volume2 size={16} className={liveNoise > 90 ? "text-orange-500" : "text-slate-400"} />
-                <span className="text-2xl font-bold font-mono mt-1">{liveNoise}dB</span>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-slate-500 text-xs font-bold uppercase flex items-center gap-2">
+                <Activity size={14} /> Real-time Sensor Telemetry
+              </h3>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase text-slate-400">
+                  Type
+                </span>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setInspectionType("QC_PRODUCT")}
+                    className={clsx(
+                      "px-3 py-1.5 text-[11px] rounded-full border transition-all",
+                      inspectionType === "QC_PRODUCT"
+                        ? "bg-blue-50 text-blue-700 border-blue-200"
+                        : "bg-white text-slate-500 border-slate-200 hover:border-blue-300"
+                    )}
+                  >
+                    QC Product
+                  </button>
+                  <button
+                    onClick={() => setInspectionType("MACHINE_CHECK")}
+                    className={clsx(
+                      "px-3 py-1.5 text-[11px] rounded-full border transition-all",
+                      inspectionType === "MACHINE_CHECK"
+                        ? "bg-amber-50 text-amber-700 border-amber-200"
+                        : "bg-white text-slate-500 border-slate-200 hover:border-amber-300"
+                    )}
+                  >
+                    ตรวจสอบเครื่องจักร
+                  </button>
+                </div>
               </div>
             </div>
+            {inspectionType === "MACHINE_CHECK" ? (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div
+                  className={clsx(
+                    "p-3 rounded-xl border flex flex-col items-center",
+                    liveTemp > 80 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-100"
+                  )}
+                >
+                  <Thermometer size={16} className={liveTemp > 80 ? "text-red-500" : "text-slate-400"} />
+                  <span className="text-2xl font-bold font-mono mt-1">{liveTemp}°C</span>
+                </div>
+                <div
+                  className={clsx(
+                    "p-3 rounded-xl border flex flex-col items-center",
+                    liveNoise > 90 ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-100"
+                  )}
+                >
+                  <Volume2 size={16} className={liveNoise > 90 ? "text-orange-500" : "text-slate-400"} />
+                  <span className="text-2xl font-bold font-mono mt-1">{liveNoise}dB</span>
+                </div>
+              </div>
+            ) : (
+              <div className="mb-4 p-3 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-500">
+                ไม่แสดงข้อมูลอุณหภูมิ/เดซิเบลในโหมด QC Product
+              </div>
+            )}
 
             {/* Manual Assistant */}
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
@@ -283,9 +330,21 @@ export function MonitorView({
             </div>
           </div>
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex-1 flex flex-col">
-            <h3 className="text-slate-900 font-bold mb-4 flex items-center gap-2">
-              <CheckCircle size={18} className="text-blue-500" /> QC Status
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-slate-900 font-bold flex items-center gap-2">
+                <CheckCircle size={18} className="text-blue-500" /> QC Status
+              </h3>
+              <span
+                className={clsx(
+                  "px-3 py-1 rounded-full text-[11px] font-bold border",
+                  statusInspectionType === "QC_PRODUCT"
+                    ? "bg-blue-50 text-blue-700 border-blue-100"
+                    : "bg-amber-50 text-amber-700 border-amber-100"
+                )}
+              >
+                {inspectionLabel}
+              </span>
+            </div>
             {latestResult ? (
               <div className="flex-1 flex flex-col">
                 <div

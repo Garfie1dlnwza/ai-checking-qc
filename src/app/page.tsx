@@ -25,7 +25,7 @@ import { DashboardView } from "@/components/DashboardView";
 import { IssuesView } from "@/components/IssuesView";
 import { ReportsView } from "@/components/ReportsView";
 import { NavItem } from "@/components/NavItem";
-import { QCResult, Technician } from "@/types/qc";
+import { InspectionType, QCResult, Technician } from "@/types/qc";
 
 // --- DATA MODELS ---
 
@@ -34,6 +34,22 @@ const MOCK_TECHNICIANS: Technician[] = [
   { id: "T02", name: "Wipa Tech", role: "Line Inspector", avatar: "WT" },
   { id: "T03", name: "Kenji Systems", role: "System Admin", avatar: "KS" },
 ];
+
+const INSPECTION_PROFILES: Record<
+  InspectionType,
+  { label: string; target: string; activity: string }
+> = {
+  QC_PRODUCT: {
+    label: "QC Product",
+    target: "Electronic PCB",
+    activity: "Product Quality Inspection",
+  },
+  MACHINE_CHECK: {
+    label: "ตรวจสอบเครื่องจักร",
+    target: "Machine Panel & Conveyor Health Check",
+    activity: "Machine Condition Audit",
+  },
+};
 
 export default function SpectraManageQC() {
   const [currentView, setCurrentView] = useState<
@@ -45,7 +61,9 @@ export default function SpectraManageQC() {
   const [loading, setLoading] = useState(false);
   const [latestResult, setLatestResult] = useState<QCResult | null>(null);
   const [capturedFrame, setCapturedFrame] = useState<string | null>(null);
-  const [productType] = useState("Electronic PCB");
+  const [inspectionType, setInspectionType] =
+    useState<InspectionType>("QC_PRODUCT");
+  const inspectionProfile = INSPECTION_PROFILES[inspectionType];
   const [liveTemp, setLiveTemp] = useState(45);
   const [liveNoise, setLiveNoise] = useState(60);
 
@@ -180,6 +198,36 @@ export default function SpectraManageQC() {
   const triggerAudioAlert = (defect: string, severity: string) => {
     if (!audioEnabled) return;
 
+    const playTone = (
+      freq: number,
+      duration: number,
+      startAt = 0,
+      gainValue = 0.14
+    ) => {
+      try {
+        const AudioCtx =
+          (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        if (ctx.state === "suspended") ctx.resume().catch(() => {});
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + startAt);
+        gain.gain.setValueAtTime(gainValue, ctx.currentTime + startAt);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + startAt);
+        osc.stop(ctx.currentTime + startAt + duration);
+      } catch (e) {
+        console.error("Tone play failed", e);
+      }
+    };
+
+    // Quick confirmation chime for all alerts
+    playTone(660, 0.18, 0, 0.12);
+    playTone(880, 0.22, 0.12, 0.12);
+
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       const severityLabel =
         severity === "HIGH" ? "สูง" : severity === "MEDIUM" ? "ปานกลาง" : "ต่ำ";
@@ -201,51 +249,44 @@ export default function SpectraManageQC() {
     }
 
     if (severity === "HIGH") {
-      try {
-        const AudioCtx =
-          (window as any).AudioContext || (window as any).webkitAudioContext;
-        if (!AudioCtx) return;
-        const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.type = "sawtooth";
-        osc.frequency.setValueAtTime(440, ctx.currentTime);
-        osc.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.18, ctx.currentTime);
-        osc.start();
-        osc.stop(ctx.currentTime + 5);
-      } catch (e) {
-        console.error("Audio play failed", e);
-      }
+      // Louder escalating tone for high severity
+      playTone(520, 0.5, 0.3, 0.18);
+      playTone(620, 0.5, 0.8, 0.18);
     }
+  };
+
+  const handleTestAudio = () => {
+    triggerAudioAlert("ทดสอบเสียงเตือน", "MEDIUM");
   };
 
   const buildRecordFromAnalysis = (
     analysis: QCResult,
     mockSensorTemp: number,
     mockSensorNoise: number,
-    idPrefix = "LOG"
+    idPrefix = "LOG",
+    inspectionTypeValue: InspectionType
   ): QCResult => {
+    const sensorGateEnabled = inspectionTypeValue === "MACHINE_CHECK";
     let finalStatus = analysis.status;
     let finalSeverity = analysis.severity;
     const extraReasons: string[] = [];
     const sensorAlerts: string[] = [];
 
-    if (mockSensorTemp > 80) {
-      finalStatus = "REJECT";
-      finalSeverity = "HIGH";
-      const msg = `อุณหภูมิสูงผิดปกติ (${mockSensorTemp}°C)`;
-      extraReasons.push(msg);
-      sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
-    }
-    if (mockSensorNoise > 90) {
-      finalStatus = "REJECT";
-      finalSeverity = "HIGH";
-      const msg = `เสียงดังผิดปกติ (${mockSensorNoise}dB)`;
-      extraReasons.push(msg);
-      sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
+    if (sensorGateEnabled) {
+      if (mockSensorTemp > 80) {
+        finalStatus = "REJECT";
+        finalSeverity = "HIGH";
+        const msg = `อุณหภูมิสูงผิดปกติ (${mockSensorTemp}°C)`;
+        extraReasons.push(msg);
+        sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
+      }
+      if (mockSensorNoise > 90) {
+        finalStatus = "REJECT";
+        finalSeverity = "HIGH";
+        const msg = `เสียงดังผิดปกติ (${mockSensorNoise}dB)`;
+        extraReasons.push(msg);
+        sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
+      }
     }
 
     const combinedDefects = [...analysis.defects, ...extraReasons];
@@ -261,6 +302,7 @@ export default function SpectraManageQC() {
       defects: combinedDefects,
       reasoning: finalReasoning,
       id: `${idPrefix}-${Math.floor(Math.random() * 10000)}`,
+      inspectionType: inspectionTypeValue,
       inspectorId: "AUTO-CCTV",
       ticketStatus: finalStatus === "REJECT" ? "OPEN" : "ARCHIVED",
       temperature: mockSensorTemp,
@@ -326,7 +368,8 @@ export default function SpectraManageQC() {
 
     const formData = new FormData();
     formData.append("image", file);
-    formData.append("productType", productType);
+    formData.append("productType", inspectionProfile.target);
+    formData.append("inspectionType", inspectionType);
 
     const response = await analyzeImage(formData);
 
@@ -335,7 +378,8 @@ export default function SpectraManageQC() {
         response.data as QCResult,
         mockSensorTemp,
         mockSensorNoise,
-        "LOG"
+        "LOG",
+        inspectionType
       );
 
       setLatestResult(newRecord);
@@ -376,7 +420,8 @@ export default function SpectraManageQC() {
 
         const formData = new FormData();
         formData.append("image", file);
-        formData.append("productType", productType);
+        formData.append("productType", inspectionProfile.target);
+        formData.append("inspectionType", inspectionType);
 
         const response = await analyzeImage(formData);
         if (response.success && response.data) {
@@ -384,7 +429,8 @@ export default function SpectraManageQC() {
             response.data as QCResult,
             mockSensorTemp,
             mockSensorNoise,
-            "V-LOG"
+            "V-LOG",
+            inspectionType
           );
           setLatestResult(newRecord);
           setHistory((prev) => [newRecord, ...prev]);
@@ -444,14 +490,17 @@ export default function SpectraManageQC() {
       : record.inspectorId === "AUTO-CCTV"
       ? "AI AUTO-AGENT"
       : "Unknown";
+    const profile =
+      INSPECTION_PROFILES[record.inspectionType] ||
+      INSPECTION_PROFILES.QC_PRODUCT;
     const blob = await pdf(
       <QCReportDocument
         data={record}
         meta={{
           project: "Spectra IoT Node 04",
           location: "Line 4",
-          activity: "Auto Inspection",
-          materials: productType,
+          activity: profile.activity,
+          materials: profile.target,
           laborHours: "0",
           equipment: `Cam + Temp Sensor (${record.temperature}°C)`,
           accidents: "N/A",
@@ -559,6 +608,18 @@ export default function SpectraManageQC() {
               {audioEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
             </button>
 
+            <button
+              onClick={handleTestAudio}
+              disabled={!audioEnabled}
+              className={clsx(
+                "px-3 py-2 text-xs font-semibold rounded-lg border bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed",
+                "border-slate-200"
+              )}
+              title={audioEnabled ? "Play a quick alert sound" : "Unmute alerts to test"}
+            >
+              Test Sound
+            </button>
+
             <button className="p-2 text-slate-500 hover:bg-slate-100 rounded-full relative">
               <Bell size={20} />
               {notifications > 0 && (
@@ -592,6 +653,8 @@ export default function SpectraManageQC() {
             isVideoProcessing={isVideoProcessing}
             toggleVideoProcessing={toggleVideoProcessing}
             videoRef={videoRef}
+            inspectionType={inspectionType}
+            setInspectionType={setInspectionType}
           />
         )}
 

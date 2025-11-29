@@ -8,6 +8,11 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 export async function analyzeImage(formData: FormData) {
   const file = formData.get('image') as File;
   const productType = formData.get('productType') as string;
+  const inspectionType = (formData.get('inspectionType') as string) || 'QC_PRODUCT';
+  const isMachineCheck = inspectionType === 'MACHINE_CHECK';
+  const inspectionLabel = isMachineCheck
+    ? 'Machine / Equipment Condition Check (ตรวจสอบเครื่องจักร)'
+    : 'QC Product (ตรวจสอบชิ้นงาน)';
 
   if (!file) return { error: 'No image uploaded' };
 
@@ -17,13 +22,22 @@ export async function analyzeImage(formData: FormData) {
 
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
+  const focusText = isMachineCheck
+    ? `Machine check focus: oil/coolant leaks, burn marks, loose belts/chains, abnormal heat spots, smoke, exposed wiring, vibration or misalignment, missing/loose guards, warning lights or error codes on HMI/panel. Treat safety/overheat/leak issues as HIGH severity.`
+    : `Product QC focus: dents, scratches, cracks, missing components, misalignment, solder/assembly quality, wrong/blurred labels, contamination, color defects.`;
+
   const prompt = `
-    You are a Vision-Language QC Agent for a factory. Inspecting product: ${productType}
+    You are a Vision-Language QC Agent for a factory.
+    Inspection Type: ${inspectionLabel}
+    Target/Asset: ${productType}
+
+    ${focusText}
 
     ✅ TAG 1: QC LIST
     1) Visual QC: Dents, scratches, color issues, deformation, misalignment.
     2) Machine Panel QC: Temp/Pressure anomalies, Error codes on HMI.
     3) Process QC: WIP pileups, missing docs, low raw materials.
+    - If Machine Check mode, prioritize machine health (leaks/heat/alarms) over cosmetic issues.
 
     🎯 YOUR TASK:
     Analyze the image and return ONLY JSON with this structure:

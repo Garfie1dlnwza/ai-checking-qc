@@ -44,12 +44,32 @@ export function IssuesView({
                 <td className="p-4 font-mono text-slate-600 font-bold">{h.id}</td>
                 <td className="p-4 text-slate-600">{new Date(h.timestamp).toLocaleTimeString()}</td>
                 <td className="p-4 text-xs font-mono">
-                  <div className={h.temperature > 80 ? "text-red-600 font-bold" : "text-slate-500"}>T: {h.temperature}°C</div>
-                  <div className={h.noise_level > 90 ? "text-orange-600 font-bold" : "text-slate-500"}>
-                    N: {h.noise_level}dB
-                  </div>
+                  {h.inspectionType === "MACHINE_CHECK" ? (
+                    <>
+                      <div className={h.temperature > 80 ? "text-red-600 font-bold" : "text-slate-500"}>T: {h.temperature}°C</div>
+                      <div className={h.noise_level > 90 ? "text-orange-600 font-bold" : "text-slate-500"}>
+                        N: {h.noise_level}dB
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-slate-400">N/A</div>
+                  )}
                 </td>
-                <td className="p-4 font-medium text-slate-900">{h.defects[0]}</td>
+                <td className="p-4 font-medium text-slate-900">
+                  <div>{h.defects[0]}</div>
+                  <span
+                    className={clsx(
+                      "inline-flex mt-1 text-[10px] px-2 py-0.5 rounded-full border font-bold",
+                      h.inspectionType === "MACHINE_CHECK"
+                        ? "bg-amber-50 text-amber-700 border-amber-200"
+                        : "bg-blue-50 text-blue-700 border-blue-200"
+                    )}
+                  >
+                    {h.inspectionType === "MACHINE_CHECK"
+                      ? "ตรวจสอบเครื่องจักร"
+                      : "QC Product"}
+                  </span>
+                </td>
                 <td className="p-4">
                   {h.ticketStatus === "RESOLVED" ? (
                     <span className="text-slate-500 text-xs">{technicians.find((t) => t.id === h.inspectorId)?.name}</span>
