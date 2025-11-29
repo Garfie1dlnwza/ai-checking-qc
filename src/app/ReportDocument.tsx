@@ -38,6 +38,12 @@ const styles = StyleSheet.create({
   signatureBox: { borderTopWidth: 1, borderColor: '#000', width: '40%', paddingTop: 5, marginTop: 40, textAlign: 'center' },
   statusPass: { color: 'green', fontWeight: 'bold' },
   statusFail: { color: 'red', fontWeight: 'bold' },
+  card: { borderWidth: 1, borderColor: '#ddd', borderRadius: 6, padding: 8, marginTop: 6 },
+  cardRed: { backgroundColor: '#fdecec', borderColor: '#f4b4b4' },
+  cardGray: { backgroundColor: '#f7f7f7', borderColor: '#e5e5e5' },
+  cardGreen: { backgroundColor: '#ecf8f1', borderColor: '#b7e0c7' },
+  badge: { fontSize: 9, fontWeight: 'bold', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10, color: '#b91c1c', backgroundColor: '#fee2e2' },
+  listItem: { fontSize: 9, marginBottom: 2 },
 });
 
 interface ReportProps {
@@ -95,24 +101,35 @@ export const QCReportDocument = ({ data, meta, imageSrc }: ReportProps) => (
            <Text style={styles.label}>Overall Status:</Text>
            <Text style={data.status === 'PASS' ? styles.statusPass : styles.statusFail}>{data.status} (Confidence: {(data.confidence * 100).toFixed(1)}%)</Text>
         </View>
-        
-        {data.status === 'REJECT' && (
-          <View>
-            <View style={styles.row}><Text style={styles.label}>Defects Found:</Text><Text style={styles.value}>{data.defects.join(', ')}</Text></View>
-            <View style={styles.row}><Text style={styles.label}>Root Cause:</Text><Text style={styles.value}>{data.root_cause}</Text></View>
-            <View style={styles.row}><Text style={styles.label}>Severity:</Text><Text style={styles.value}>{data.severity}</Text></View>
+
+        {/* Defects & Severity */}
+        <View style={[styles.card, styles.cardRed]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>🔴 ข้อผิดพลาดที่พบ</Text>
+            <Text style={styles.badge}>{data.severity}</Text>
           </View>
-        )}
-        
-        <View style={{ marginTop: 5 }}>
-          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>Reasoning (เหตุผลการวิเคราะห์):</Text>
-          <Text style={{ color: '#444' }}>{data.reasoning}</Text>
+          <Text style={{ fontSize: 9, color: '#b91c1c' }}>
+            {data.defects.length > 0 ? data.defects.join(', ') : '-'}
+          </Text>
         </View>
 
-        <View style={{ marginTop: 5 }}>
-          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>Recommended Actions (ข้อแนะนำ):</Text>
+        {/* Root Cause */}
+        <View style={[styles.card, styles.cardGray]}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>🔍 สาเหตุ (Root Cause)</Text>
+          <Text style={{ fontSize: 9, color: '#444' }}>{data.root_cause || '-'}</Text>
+        </View>
+
+        {/* Reasoning */}
+        <View style={[styles.card, styles.cardGray]}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>🧠 การวิเคราะห์/ตรวจสอบขั้นลึก</Text>
+          <Text style={{ fontSize: 9, color: '#444' }}>{data.reasoning}</Text>
+        </View>
+
+        {/* Recommended Actions */}
+        <View style={[styles.card, styles.cardGreen]}>
+          <Text style={{ fontWeight: 'bold', marginBottom: 4 }}>🛠️ คำแนะนำการแก้ไข</Text>
           {data.solution.recommended_actions.map((action: string, i: number) => (
-             <Text key={i}>- {action}</Text>
+             <Text key={i} style={styles.listItem}>- {action}</Text>
           ))}
         </View>
       </View>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import type { ChangeEvent } from "react";
 import { analyzeImage, askSpectraAI } from "./actions";
 import { QCReportDocument } from "./ReportDocument";
 import { pdf } from "@react-pdf/renderer";
@@ -50,6 +51,13 @@ export default function SpectraManageQC() {
 
   // --- NEW STATE: Audio Control ---
   const [audioEnabled, setAudioEnabled] = useState(true);
+  const thaiVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+
+  // --- VIDEO STATE ---
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [isVideoProcessing, setIsVideoProcessing] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -154,48 +162,110 @@ export default function SpectraManageQC() {
     }
   }, [chatMessages, chatOpen]);
 
-  // --- WOW FEATURE #3: AUDIO LOGIC (5 Seconds Siren) ---
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const synth = window.speechSynthesis;
+
+    const loadVoices = () => {
+      const voices = synth.getVoices();
+      const found = voices.find((v) => v.lang?.toLowerCase().startsWith("th"));
+      thaiVoiceRef.current = found || null;
+    };
+
+    loadVoices();
+    synth.addEventListener("voiceschanged", loadVoices);
+    return () => synth.removeEventListener("voiceschanged", loadVoices);
+  }, []);
+
   const triggerAudioAlert = (defect: string, severity: string) => {
     if (!audioEnabled) return;
 
-    // 1. Voice Announcement (TTS)
-    // พูดแจ้งเตือนทันที
-    const msg = new SpeechSynthesisUtterance(
-      `Alert! Defect Detected. ${defect}.`
-    );
-    msg.lang = "en-US";
-    window.speechSynthesis.speak(msg);
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const severityLabel =
+        severity === "HIGH" ? "สูง" : severity === "MEDIUM" ? "ปานกลาง" : "ต่ำ";
+      const speakText = `แจ้งเตือน พบความผิดปกติ ${defect} ระดับความรุนแรง ${severityLabel}`;
+      const synth = window.speechSynthesis;
+      synth.cancel();
+      const utterance = new SpeechSynthesisUtterance(speakText);
+      utterance.lang = "th-TH";
+      utterance.pitch = 1.05;
+      utterance.rate = 0.95;
+      if (!thaiVoiceRef.current) {
+        const found = synth
+          .getVoices()
+          .find((v) => v.lang?.toLowerCase().startsWith("th"));
+        thaiVoiceRef.current = found || null;
+      }
+      if (thaiVoiceRef.current) utterance.voice = thaiVoiceRef.current;
+      synth.speak(utterance);
+    }
 
-    // 2. Siren Sound (Web Audio API for HIGH Severity)
-    // ถ้าความรุนแรงระดับ HIGH ให้เปิดไซเรน 5 วินาที
     if (severity === "HIGH") {
       try {
-        const ctx = new (window.AudioContext ||
-          (window as any).webkitAudioContext)();
+        const AudioCtx =
+          (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-
         osc.connect(gain);
         gain.connect(ctx.destination);
-
-        // ใช้คลื่น Sawtooth ให้เสียงแหลมเหมือน Alarm
         osc.type = "sawtooth";
-
-        // ตั้งค่าความถี่ (Frequency)
-        osc.frequency.setValueAtTime(440, ctx.currentTime); // เริ่มที่ A4
-        osc.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.1); // พุ่งขึ้นเร็วๆ ให้ตกใจ
-
-        // ตั้งค่าความดัง (Volume)
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
-
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
         osc.start();
-
-        // *** สำคัญ: สั่งหยุดที่เวลาปัจจุบัน + 5 วินาที ***
         osc.stop(ctx.currentTime + 5);
       } catch (e) {
         console.error("Audio play failed", e);
       }
     }
+  };
+
+  const buildRecordFromAnalysis = (
+    analysis: QCResult,
+    mockSensorTemp: number,
+    mockSensorNoise: number,
+    idPrefix = "LOG"
+  ): QCResult => {
+    let finalStatus = analysis.status;
+    let finalSeverity = analysis.severity;
+    const extraReasons: string[] = [];
+    const sensorAlerts: string[] = [];
+
+    if (mockSensorTemp > 80) {
+      finalStatus = "REJECT";
+      finalSeverity = "HIGH";
+      const msg = `อุณหภูมิสูงผิดปกติ (${mockSensorTemp}°C)`;
+      extraReasons.push(msg);
+      sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
+    }
+    if (mockSensorNoise > 90) {
+      finalStatus = "REJECT";
+      finalSeverity = "HIGH";
+      const msg = `เสียงดังผิดปกติ (${mockSensorNoise}dB)`;
+      extraReasons.push(msg);
+      sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
+    }
+
+    const combinedDefects = [...analysis.defects, ...extraReasons];
+    const finalReasoning =
+      sensorAlerts.length > 0
+        ? `${sensorAlerts.join(" ")}\n${analysis.reasoning}`
+        : analysis.reasoning;
+
+    return {
+      ...analysis,
+      status: finalStatus as "PASS" | "REJECT",
+      severity: finalSeverity,
+      defects: combinedDefects,
+      reasoning: finalReasoning,
+      id: `${idPrefix}-${Math.floor(Math.random() * 10000)}`,
+      inspectorId: "AUTO-CCTV",
+      ticketStatus: finalStatus === "REJECT" ? "OPEN" : "ARCHIVED",
+      temperature: mockSensorTemp,
+      noise_level: mockSensorNoise,
+    };
   };
 
   // --- ACTIONS ---
@@ -240,7 +310,7 @@ export default function SpectraManageQC() {
 
   const handleUploadClick = () => fileInputRef.current?.click();
 
-  const processImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const processImage = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -261,63 +331,111 @@ export default function SpectraManageQC() {
     const response = await analyzeImage(formData);
 
     if (response.success && response.data) {
-      let finalStatus = response.data.status;
-      let finalSeverity = response.data.severity; // ดึงค่าเดิมมาก่อน
-      let extraReasons: string[] = [];
-      let sensorAlerts: string[] = [];
-
-      // ตรวจสอบ Sensor -> ถ้าเกินเกณฑ์ ปรับเป็น HIGH ทันที
-      if (mockSensorTemp > 80) {
-        finalStatus = "REJECT";
-        finalSeverity = "HIGH"; // Force High Severity
-        const msg = `อุณหภูมิสูงผิดปกติ (${mockSensorTemp}°C)`;
-        extraReasons.push(msg);
-        sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
-      }
-      if (mockSensorNoise > 90) {
-        finalStatus = "REJECT";
-        finalSeverity = "HIGH"; // Force High Severity
-        const msg = `เสียงดังผิดปกติ (${mockSensorNoise}dB)`;
-        extraReasons.push(msg);
-        sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
-      }
-
-      let finalReasoning = response.data.reasoning;
-      if (sensorAlerts.length > 0) {
-        finalReasoning = `${sensorAlerts.join(" ")}\n${
-          response.data.reasoning
-        }`;
-      }
-
-      const combinedDefects = [...response.data.defects, ...extraReasons];
-
-      const newRecord: QCResult = {
-        ...response.data,
-        status: finalStatus as "PASS" | "REJECT",
-        severity: finalSeverity, // ใช้ค่าที่อัปเดตแล้ว
-        defects: combinedDefects,
-        reasoning: finalReasoning,
-        id: `LOG-${Math.floor(Math.random() * 10000)}`,
-        inspectorId: "AUTO-CCTV",
-        ticketStatus: finalStatus === "REJECT" ? "OPEN" : "ARCHIVED",
-        temperature: mockSensorTemp,
-        noise_level: mockSensorNoise,
-      };
+      const newRecord = buildRecordFromAnalysis(
+        response.data as QCResult,
+        mockSensorTemp,
+        mockSensorNoise,
+        "LOG"
+      );
 
       setLatestResult(newRecord);
       setHistory((prev) => [newRecord, ...prev]);
 
       if (newRecord.status === "REJECT") {
         setNotifications((prev) => prev + 1);
-        // 🔥 Trigger Audio Alert (TTS + Siren 5s if HIGH)
         triggerAudioAlert(
-          combinedDefects[0] || "Unknown Defect",
-          finalSeverity
+          newRecord.defects[0] || "Unknown Defect",
+          newRecord.severity
         );
       }
     }
     setLoading(false);
   };
+
+  const processVideoFrame = async () => {
+    if (!videoRef.current || videoRef.current.paused || videoRef.current.ended) {
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "video-frame.jpg", { type: "image/jpeg" });
+
+        const mockSensorTemp = Math.floor(Math.random() * (95 - 40) + 40);
+        const mockSensorNoise = Math.floor(Math.random() * (100 - 60) + 60);
+        setLiveTemp(mockSensorTemp);
+        setLiveNoise(mockSensorNoise);
+
+        const formData = new FormData();
+        formData.append("image", file);
+        formData.append("productType", productType);
+
+        const response = await analyzeImage(formData);
+        if (response.success && response.data) {
+          const newRecord = buildRecordFromAnalysis(
+            response.data as QCResult,
+            mockSensorTemp,
+            mockSensorNoise,
+            "V-LOG"
+          );
+          setLatestResult(newRecord);
+          setHistory((prev) => [newRecord, ...prev]);
+          if (newRecord.status === "REJECT") {
+            setNotifications((prev) => prev + 1);
+            triggerAudioAlert(
+              newRecord.defects[0] || "Defect Found",
+              newRecord.severity
+            );
+          }
+        }
+      },
+      "image/jpeg",
+      0.8
+    );
+  };
+
+  const stopVideoProcessing = () => {
+    setIsVideoProcessing(false);
+    if (videoIntervalRef.current) {
+      clearInterval(videoIntervalRef.current);
+      videoIntervalRef.current = null;
+    }
+    videoRef.current?.pause();
+  };
+
+  const handleVideoUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setVideoSrc(url);
+    setCapturedFrame(null);
+    stopVideoProcessing();
+  };
+
+  const toggleVideoProcessing = () => {
+    if (isVideoProcessing) {
+      stopVideoProcessing();
+    } else {
+      setIsVideoProcessing(true);
+      videoRef.current?.play();
+      processVideoFrame();
+      videoIntervalRef.current = setInterval(processVideoFrame, 3000);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopVideoProcessing();
+    };
+  }, []);
 
   const generatePDF = async (record: QCResult) => {
     const tech = MOCK_TECHNICIANS.find((t) => t.id === record.inspectorId);
@@ -469,6 +587,11 @@ export default function SpectraManageQC() {
             latestResult={latestResult}
             generatePDF={generatePDF}
             handleAskManual={handleAskManual}
+            videoSrc={videoSrc}
+            handleVideoUpload={handleVideoUpload}
+            isVideoProcessing={isVideoProcessing}
+            toggleVideoProcessing={toggleVideoProcessing}
+            videoRef={videoRef}
           />
         )}
 

@@ -2,14 +2,20 @@ import type { ChangeEvent, RefObject } from "react";
 import clsx from "clsx";
 import {
   Activity,
+  AlertTriangle,
+  Brain,
   BookOpen,
   Camera,
   CheckCircle,
   FileText,
   Flame,
+  Pause,
+  Play,
   Upload,
+  Video,
   Volume2,
   Thermometer,
+  Wrench,
 } from "lucide-react";
 import { QCResult } from "@/types/qc";
 
@@ -26,6 +32,11 @@ interface MonitorViewProps {
   latestResult: QCResult | null;
   generatePDF: (record: QCResult) => void;
   handleAskManual: (errorCode: string) => void;
+  videoSrc: string | null;
+  handleVideoUpload: (e: ChangeEvent<HTMLInputElement>) => void;
+  isVideoProcessing: boolean;
+  toggleVideoProcessing: () => void;
+  videoRef: RefObject<HTMLVideoElement>;
 }
 
 export function MonitorView({
@@ -41,6 +52,11 @@ export function MonitorView({
   latestResult,
   generatePDF,
   handleAskManual,
+  videoSrc,
+  handleVideoUpload,
+  isVideoProcessing,
+  toggleVideoProcessing,
+  videoRef,
 }: MonitorViewProps) {
   return (
     <div className="animate-in fade-in duration-300">
@@ -64,9 +80,14 @@ export function MonitorView({
                 </span>
               )}
               <div className="flex items-center gap-2 bg-red-600/20 backdrop-blur-md px-3 py-1 rounded-full border border-red-500/30">
-                <div className="h-2 w-2 bg-red-500 rounded-full animate-pulse"></div>
+                <div
+                  className={clsx(
+                    "h-2 w-2 bg-red-500 rounded-full",
+                    isVideoProcessing && "animate-pulse"
+                  )}
+                ></div>
                 <span className="text-red-500 text-xs font-bold tracking-wider">
-                  LIVE
+                  {isVideoProcessing ? "ANALYZING" : "LIVE"}
                 </span>
               </div>
             </div>
@@ -85,7 +106,20 @@ export function MonitorView({
                   "linear-gradient(180deg, rgba(0,0,255,0.2) 0%, rgba(255,0,0,0.2) 100%)",
               }}
             ></div>
-            {capturedFrame ? (
+            {videoSrc ? (
+              <video
+                ref={videoRef}
+                src={videoSrc}
+                loop
+                muted
+                playsInline
+                className={clsx(
+                  "w-full h-full object-contain transition-all duration-500",
+                  thermalMode &&
+                    "brightness-125 contrast-125 hue-rotate-[180deg] invert"
+                )}
+              />
+            ) : capturedFrame ? (
               <img
                 src={capturedFrame}
                 className={clsx(
@@ -105,7 +139,7 @@ export function MonitorView({
               <div className="absolute inset-0 bg-cyan-500/10 z-20 border-b-2 border-cyan-400 animate-scan pointer-events-none"></div>
             )}
             {!loading && (
-              <div className="absolute bottom-6 right-6 z-30 pointer-events-auto">
+              <div className="absolute bottom-6 right-6 z-30 pointer-events-auto flex gap-2">
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -113,15 +147,49 @@ export function MonitorView({
                   className="hidden"
                   accept="image/*"
                 />
+                <label className="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/30 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-bold shadow-lg transition-all hover:scale-105 cursor-pointer">
+                  <Video size={16} />
+                  Upload Video
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="video/*"
+                    onChange={handleVideoUpload}
+                  />
+                </label>
                 <button
                   onClick={handleUploadClick}
                   className="bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/30 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-bold shadow-lg transition-all hover:scale-105"
                 >
-                  <Upload size={16} /> Upload CCTV Sample
+                  <Upload size={16} /> Image
                 </button>
               </div>
             )}
           </div>
+
+          {videoSrc && (
+            <div className="p-3 bg-zinc-800 flex justify-center items-center gap-4 z-30">
+              <button
+                onClick={toggleVideoProcessing}
+                className={clsx(
+                  "flex items-center gap-2 px-6 py-2 rounded-full font-bold text-sm transition-all",
+                  isVideoProcessing
+                    ? "bg-red-600 hover:bg-red-700 text-white"
+                    : "bg-green-600 hover:bg-green-700 text-white"
+                )}
+              >
+                {isVideoProcessing ? (
+                  <>
+                    <Pause size={16} /> Stop AI Analysis
+                  </>
+                ) : (
+                  <>
+                    <Play size={16} /> Start AI Analysis
+                  </>
+                )}
+              </button>
+            </div>
+          )}
           {/* Footer */}
           <div className="p-3 bg-zinc-900 border-t border-zinc-800 flex justify-between items-center text-zinc-400 text-xs">
             <div>Spectra-Vision AI v2.4 (Model: Gemini-2.0-Flash)</div>
@@ -222,7 +290,7 @@ export function MonitorView({
               <div className="flex-1 flex flex-col">
                 <div
                   className={clsx(
-                    "p-4 rounded-xl border mb-4 text-center",
+                    "p-4 rounded-xl border mb-3 text-center",
                     latestResult.status === "PASS"
                       ? "bg-green-50 border-green-100 text-green-700"
                       : "bg-red-50 border-red-100 text-red-700"
@@ -235,19 +303,67 @@ export function MonitorView({
                     Confidence: {(latestResult.confidence * 100).toFixed(0)}%
                   </div>
                 </div>
-                {latestResult.status === "REJECT" && (
-                  <div className="mb-4 bg-red-50 p-3 rounded-lg border border-red-100 max-h-[100px] overflow-y-auto">
-                    <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
-                      {latestResult.defects.map((d, i) => (
-                        <li key={i}>{d}</li>
-                      ))}
-                    </ul>
+
+                {/* Defects + Severity */}
+                <div className="mb-3 bg-red-50 border border-red-200 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 text-red-700 font-bold text-sm">
+                      <AlertTriangle size={14} /> ข้อผิดพลาดที่พบ
+                    </div>
+                    <span
+                      className={clsx(
+                        "px-2 py-1 rounded-full text-[11px] font-bold",
+                        latestResult.severity === "HIGH"
+                          ? "bg-red-100 text-red-700"
+                          : latestResult.severity === "MEDIUM"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-emerald-100 text-emerald-700"
+                      )}
+                    >
+                      {latestResult.severity}
+                    </span>
                   </div>
-                )}
-                <div className="text-sm text-slate-600 mb-6 flex-1 overflow-y-auto">
-                  <span className="font-bold text-slate-900">AI:</span>{" "}
-                  {latestResult.reasoning}
+                  <ul className="text-xs text-red-700 space-y-1 list-disc list-inside max-h-20 overflow-y-auto">
+                    {latestResult.defects.map((d, i) => (
+                      <li key={i}>{d}</li>
+                    ))}
+                  </ul>
                 </div>
+
+                {/* Root Cause */}
+                <div className="mb-3 bg-slate-50 border border-slate-200 rounded-xl p-3">
+                  <div className="flex items-center gap-2 text-slate-800 font-bold text-sm mb-1">
+                    <Brain size={14} /> สาเหตุ (Root Cause)
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    {latestResult.root_cause}
+                  </p>
+                </div>
+
+                {/* Deep Reasoning */}
+                <div className="mb-3 bg-white border border-slate-200 rounded-xl p-3">
+                  <div className="flex items-center gap-2 text-slate-800 font-bold text-sm mb-1">
+                    <BookOpen size={14} /> การวิเคราะห์/ตรวจสอบขั้นลึก
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed max-h-24 overflow-y-auto">
+                    {latestResult.reasoning}
+                  </p>
+                </div>
+
+                {/* Recommendations */}
+                <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-sm mb-1">
+                    <Wrench size={14} /> คำแนะนำการแก้ไข
+                  </div>
+                  <ul className="text-xs text-emerald-700 space-y-1 list-disc list-inside max-h-24 overflow-y-auto">
+                    {latestResult.solution.recommended_actions.map(
+                      (act, i) => (
+                        <li key={i}>{act}</li>
+                      )
+                    )}
+                  </ul>
+                </div>
+
                 <button
                   onClick={() => generatePDF(latestResult)}
                   className="w-full py-2.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2"
