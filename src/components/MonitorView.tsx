@@ -2,7 +2,7 @@ import type { ChangeEvent, RefObject } from "react";
 import clsx from "clsx";
 import {
   Activity,
-  AlertTriangle,
+  BookOpen,
   Camera,
   CheckCircle,
   FileText,
@@ -25,6 +25,7 @@ interface MonitorViewProps {
   liveNoise: number;
   latestResult: QCResult | null;
   generatePDF: (record: QCResult) => void;
+  handleAskManual: (errorCode: string) => void;
 }
 
 export function MonitorView({
@@ -39,6 +40,7 @@ export function MonitorView({
   liveNoise,
   latestResult,
   generatePDF,
+  handleAskManual,
 }: MonitorViewProps) {
   return (
     <div className="animate-in fade-in duration-300">
@@ -152,58 +154,63 @@ export function MonitorView({
             <h3 className="text-slate-500 text-xs font-bold uppercase mb-3 flex items-center gap-2">
               <Activity size={14} /> Real-time Sensor Telemetry
             </h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 mb-4">
               <div
                 className={clsx(
-                  "p-3 rounded-xl border flex flex-col items-center transition-colors duration-500",
-                  liveTemp > 80
-                    ? "bg-red-50 border-red-200"
-                    : "bg-slate-50 border-slate-100"
+                  "p-3 rounded-xl border flex flex-col items-center",
+                  liveTemp > 80 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-100"
                 )}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <Thermometer
-                    size={16}
-                    className={
-                      liveTemp > 80 ? "text-red-500" : "text-slate-400"
-                    }
-                  />
-                  <span className="text-xs text-slate-500">Temp</span>
-                </div>
-                <span
-                  className={clsx(
-                    "text-2xl font-bold font-mono",
-                    liveTemp > 80 ? "text-red-600" : "text-slate-800"
-                  )}
-                >
-                  {liveTemp}°C
-                </span>
+                <Thermometer size={16} className={liveTemp > 80 ? "text-red-500" : "text-slate-400"} />
+                <span className="text-2xl font-bold font-mono mt-1">{liveTemp}°C</span>
               </div>
               <div
                 className={clsx(
-                  "p-3 rounded-xl border flex flex-col items-center transition-colors duration-500",
-                  liveNoise > 90
-                    ? "bg-orange-50 border-orange-200"
-                    : "bg-slate-50 border-slate-100"
+                  "p-3 rounded-xl border flex flex-col items-center",
+                  liveNoise > 90 ? "bg-orange-50 border-orange-200" : "bg-slate-50 border-slate-100"
                 )}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <Volume2
-                    size={16}
-                    className={
-                      liveNoise > 90 ? "text-orange-500" : "text-slate-400"
-                    }
-                  />
-                  <span className="text-xs text-slate-500">Noise</span>
-                </div>
-                <span
-                  className={clsx(
-                    "text-2xl font-bold font-mono",
-                    liveNoise > 90 ? "text-orange-600" : "text-slate-800"
-                  )}
+                <Volume2 size={16} className={liveNoise > 90 ? "text-orange-500" : "text-slate-400"} />
+                <span className="text-2xl font-bold font-mono mt-1">{liveNoise}dB</span>
+              </div>
+            </div>
+
+            {/* Manual Assistant */}
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <BookOpen size={14} className="text-blue-600" />
+                <span className="text-xs font-bold text-blue-800 uppercase">Manual Assistant</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  id="manual-input"
+                  type="text"
+                  placeholder="Code (e.g. E-104)"
+                  className="flex-1 text-xs border border-blue-200 rounded px-2 py-1.5 focus:outline-blue-500"
+                />
+                <button
+                  onClick={() => {
+                    const el = document.getElementById("manual-input") as HTMLInputElement | null;
+                    if (el?.value) handleAskManual(el.value);
+                  }}
+                  className="bg-blue-600 text-white text-xs px-3 rounded hover:bg-blue-700"
                 >
-                  {liveNoise}dB
-                </span>
+                  Ask
+                </button>
+              </div>
+              <div className="flex gap-2 mt-2 flex-wrap">
+                <button
+                  onClick={() => handleAskManual("E-104")}
+                  className="text-[10px] bg-white border border-slate-200 px-2 py-1 rounded hover:border-blue-400 text-slate-500"
+                >
+                  E-104
+                </button>
+                <button
+                  onClick={() => handleAskManual("Scratch")}
+                  className="text-[10px] bg-white border border-slate-200 px-2 py-1 rounded hover:border-blue-400 text-slate-500"
+                >
+                  Scratch
+                </button>
               </div>
             </div>
           </div>

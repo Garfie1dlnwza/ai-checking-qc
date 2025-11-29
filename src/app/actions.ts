@@ -1,26 +1,22 @@
-// app/actions.ts
 'use server';
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
+// --- 1. Analyze Image (เหมือนเดิม ไม่ต้องแก้) ---
 export async function analyzeImage(formData: FormData) {
   const file = formData.get('image') as File;
   const productType = formData.get('productType') as string;
 
-  if (!file) {
-    return { error: 'No image uploaded' };
-  }
+  if (!file) return { error: 'No image uploaded' };
 
-  // Convert file to base64 for Gemini
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   const base64Image = buffer.toString('base64');
 
   const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-  // The Exact Prompt from your Streamlit App
   const prompt = `
     You are a Vision-Language QC Agent for a factory. Inspecting product: ${productType}
 
@@ -28,16 +24,6 @@ export async function analyzeImage(formData: FormData) {
     1) Visual QC: Dents, scratches, color issues, deformation, misalignment.
     2) Machine Panel QC: Temp/Pressure anomalies, Error codes on HMI.
     3) Process QC: WIP pileups, missing docs, low raw materials.
-
-    ✅ TAG 2: PAIN POINTS
-    1) Human error in reading values.
-    2) Delayed reporting.
-    3) Manual reporting errors.
-
-    ✅ TAG 3: SOLUTIONS
-    - Vision-Language QC Agent analysis.
-    - PASS/REJECT decision with reasoning.
-    - Root cause identification.
 
     🎯 YOUR TASK:
     Analyze the image and return ONLY JSON with this structure:
@@ -48,17 +34,17 @@ export async function analyzeImage(formData: FormData) {
       "defects": ["List of defects in Thai"],
       "reasoning": "Technical reasoning in Thai",
       "action_command": "ACCEPT_PART" or "REJECT_PART",
-      "root_cause": "Root cause analysis in Thai",
+      "root_cause": "Root cause analysis in Thai (e.g. Machine calibration error, Material defect)",
       "severity": "LOW" or "MEDIUM" or "HIGH",
       "qc_list": {
-        "visual_qc": { "issues": ["issues found"], "ok": boolean },
-        "machine_panel_qc": { "issues": ["issues found"], "ok": boolean },
-        "process_qc": { "issues": ["issues found"], "ok": boolean }
+        "visual_qc": { "issues": [], "ok": boolean },
+        "machine_panel_qc": { "issues": [], "ok": boolean },
+        "process_qc": { "issues": [], "ok": boolean }
       },
       "pain_points": ["Summary of pain points"],
       "solution": {
         "summary": "How AI helps in this case (Thai)",
-        "recommended_actions": ["Action items"]
+        "recommended_actions": ["Specific step-by-step fix in Thai"]
       }
     }
   `;
@@ -66,20 +52,11 @@ export async function analyzeImage(formData: FormData) {
   try {
     const result = await model.generateContent([
       prompt,
-      {
-        inlineData: {
-          data: base64Image,
-          mimeType: file.type,
-        },
-      },
+      { inlineData: { data: base64Image, mimeType: file.type } },
     ]);
-
     const text = result.response.text();
-    
-    // Clean JSON (remove markdown backticks if present)
     const jsonStr = text.replace(/```json|```/g, '').trim();
     const data = JSON.parse(jsonStr);
-    
     return { success: true, data };
   } catch (error) {
     console.error("Gemini Error:", error);
@@ -87,46 +64,47 @@ export async function analyzeImage(formData: FormData) {
   }
 }
 
+// --- 2. Ask Spectra AI (อัปเกรดให้ตอบสาเหตุ/วิธีแก้) ---
 export async function askSpectraAI(question: string, contextData: any) {
   try {
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-    // Limit logs and technicians for prompt size
+    // คัดกรองข้อมูล Log ให้สั้นกระชับ แต่ครบถ้วนเรื่องสาเหตุ
     const recentLogs = Array.isArray(contextData.recentLogs)
-      ? contextData.recentLogs.slice(0, 5)
-      : [];
-    const technicians = Array.isArray(contextData.technicians)
-      ? contextData.technicians.slice(0, 5)
+      ? contextData.recentLogs.slice(0, 5).map((log: any) => ({
+          status: log.status,
+          defect: log.defect,
+          // เพิ่ม root_cause และ solution ลงไปใน context ถ้ามี
+          reason: log.reason, 
+        }))
       : [];
 
     const prompt = `
-      คุณคือ "Spectra-Q Copilot" ผู้ช่วย AI อัจฉริยะประจำโรงงาน
-      หน้าที่ของคุณคือตอบคำถามของผู้บริหารหรือหัวหน้าช่าง โดยอ้างอิงจากข้อมูล Real-time ด้านล่างนี้:
-
-      --- DATA CONTEXT ---
+      คุณคือ "Spectra-Q Copilot" ผู้ช่วยวิศวกร AI อัจฉริยะประจำโรงงาน
+      
+      --- ข้อมูลหน้างาน Real-time (DATA CONTEXT) ---
       - Total Scans: ${contextData.total ?? '-'}
       - Passed: ${contextData.passed ?? '-'}
-      - Rejected: ${contextData.rejected ?? '-'}
-      - Yield Rate: ${contextData.passRate ?? '-'}%
-      - Recent Issues (Logs): ${JSON.stringify(recentLogs)}
-      - Active Technicians: ${JSON.stringify(technicians)}
-      --------------------
+      - Rejected: ${contextData.rejected ?? '-'} (Yield: ${contextData.passRate ?? '-'}%)
+      - Active Technicians: ${JSON.stringify(contextData.technicians)}
+      - ล็อกการตรวจสอบล่าสุด 5 รายการ: ${JSON.stringify(recentLogs)}
+      -----------------------------------------------
 
       คำถามจาก User: "${question}"
 
-      คำแนะนำการตอบ:
-      1. ตอบเป็นภาษาไทย สั้น กระชับ และดูเป็นมืออาชีพ (Professional Engineer Tone)
-      2. อ้างอิงตัวเลขจาก Data Context เสมอ
-      3. ถ้าถามเรื่องที่ไม่มีในข้อมูล ให้ตอบว่า "ไม่มีข้อมูลในระบบครับ"
-      4. ถ้า User ถามถึงสาเหตุของเสีย ให้วิเคราะห์จาก Recent Issues
+      หน้าที่ของคุณ:
+      1. ตอบคำถามโดยอ้างอิงข้อมูลข้างต้นเสมอ
+      2. **ถ้า User ถามถึงปัญหา/สาเหตุ:** ให้วิเคราะห์จาก 'defect' และ 'reason' ในล็อกล่าสุด แล้วสรุปว่าปัญหาหลักคืออะไร (เช่น "ปัญหาส่วนใหญ่เกิดจากรอยขีดข่วน ซึ่งอาจมาจากเครื่องจักร Feed งานไม่นิ่ง")
+      3. **ถ้า User ถามวิธีแก้:** ให้แนะนำแนวทางแก้ไขทางวิศวกรรม (เช่น "แนะนำให้ Calibrate หัวจ่ายใหม่ หรือตรวจสอบความร้อนของ Sensor")
+      4. ตอบเป็นภาษาไทย สั้น กระชับ แบบมืออาชีพ (Professional & Actionable)
     `;
 
     const result = await model.generateContent(prompt);
-    const answer = result?.response?.text?.() ?? "ระบบขัดข้องชั่วคราว กรุณาลองใหม่ครับ";
+    const answer = result?.response?.text?.() ?? "ขออภัย ระบบไม่สามารถประมวลผลได้ในขณะนี้";
     return { success: true, answer };
 
   } catch (error) {
     console.error("Chat Error:", error);
-    return { success: false, answer: "ระบบขัดข้องชั่วคราว กรุณาลองใหม่ครับ" };
+    return { success: false, answer: "เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI" };
   }
 }

@@ -1,10 +1,23 @@
 "use client";
 
-import { useState, useRef, useEffect, Activity } from "react";
+import { useState, useRef, useEffect } from "react";
 import { analyzeImage, askSpectraAI } from "./actions";
 import { QCReportDocument } from "./ReportDocument";
 import { pdf } from "@react-pdf/renderer";
-import { AlertTriangle, Bell, ClipboardList, LayoutDashboard, MessageSquare, Send, X, Bot, Camera } from "lucide-react";
+import {
+  AlertTriangle,
+  Bell,
+  ClipboardList,
+  LayoutDashboard,
+  MessageSquare,
+  Send,
+  X,
+  Bot,
+  Camera,
+  Activity,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { clsx } from "clsx";
 import { MonitorView } from "@/components/MonitorView";
 import { DashboardView } from "@/components/DashboardView";
@@ -34,9 +47,13 @@ export default function SpectraManageQC() {
   const [productType] = useState("Electronic PCB");
   const [liveTemp, setLiveTemp] = useState(45);
   const [liveNoise, setLiveNoise] = useState(60);
+
+  // --- NEW STATE: Audio Control ---
+  const [audioEnabled, setAudioEnabled] = useState(true);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- CHAT STATE (WOW Feature) ---
+  // --- CHAT STATE ---
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -58,8 +75,45 @@ export default function SpectraManageQC() {
     (h) => h.status === "REJECT" && h.ticketStatus === "OPEN"
   ).length;
   const passRate = total > 0 ? ((passed / total) * 100).toFixed(1) : "0.0";
+  const handleAskManual = async (errorCode: string) => {
+    setChatOpen(true);
+    const question = `เครื่องจักรแจ้งเตือน Error Code ${errorCode} ต้องแก้ไขอย่างไรตามคู่มือ?`;
+    setChatInput(question);
 
-  // Chart Data Preparation
+    // จำลอง Manual Context (ในงานจริงคือ Vector Search จาก PDF)
+    const manualContext = `
+      [MANUAL EXTRACT: SERIES-4 CONVEYOR]
+      Error E-104: Motor Overheat. Cause: Bearing friction or dust buildup. Action: 1. Stop line immediately. 2. Inspect bearing #4. 3. Apply grease type lithium-complex.
+      Error E-200: Sensor Misalignment. Action: Re-calibrate position X-Y.
+    `;
+
+    // ส่งเข้า Chat เลย (User ไม่ต้องกด Enter)
+    setChatMessages((prev) => [...prev, { role: "user", text: question }]);
+    setChatLoading(true);
+
+    // เรียก API โดยแนบ Manual Context ไปด้วย (ต้องแก้ askSpectraAI นิดหน่อยให้รับ manual หรือใส่ใน prompt นี้เลย)
+    // เพื่อความง่ายใน Demo เราจะ Hack prompt ใน frontend นี้ส่งไปถามเลย
+    const response = await askSpectraAI(
+      question + `\n\nReference Manual: ${manualContext}`,
+      {
+        total,
+        passed,
+        rejected,
+        passRate,
+        recentLogs: [],
+        technicians: [],
+      }
+    );
+
+    setChatLoading(false);
+    if (response.success && response.answer) {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "ai", text: response.answer },
+      ]);
+    }
+  };
+  // Chart Data
   const chartDataTemp = history
     .slice(0, 10)
     .reverse()
@@ -94,12 +148,55 @@ export default function SpectraManageQC() {
     return () => clearInterval(interval);
   }, []);
 
-  // Scroll Chat to bottom
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [chatMessages, chatOpen]);
+
+  // --- WOW FEATURE #3: AUDIO LOGIC (5 Seconds Siren) ---
+  const triggerAudioAlert = (defect: string, severity: string) => {
+    if (!audioEnabled) return;
+
+    // 1. Voice Announcement (TTS)
+    // พูดแจ้งเตือนทันที
+    const msg = new SpeechSynthesisUtterance(
+      `Alert! Defect Detected. ${defect}.`
+    );
+    msg.lang = "en-US";
+    window.speechSynthesis.speak(msg);
+
+    // 2. Siren Sound (Web Audio API for HIGH Severity)
+    // ถ้าความรุนแรงระดับ HIGH ให้เปิดไซเรน 5 วินาที
+    if (severity === "HIGH") {
+      try {
+        const ctx = new (window.AudioContext ||
+          (window as any).webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        // ใช้คลื่น Sawtooth ให้เสียงแหลมเหมือน Alarm
+        osc.type = "sawtooth";
+
+        // ตั้งค่าความถี่ (Frequency)
+        osc.frequency.setValueAtTime(440, ctx.currentTime); // เริ่มที่ A4
+        osc.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.1); // พุ่งขึ้นเร็วๆ ให้ตกใจ
+
+        // ตั้งค่าความดัง (Volume)
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+
+        osc.start();
+
+        // *** สำคัญ: สั่งหยุดที่เวลาปัจจุบัน + 5 วินาที ***
+        osc.stop(ctx.currentTime + 5);
+      } catch (e) {
+        console.error("Audio play failed", e);
+      }
+    }
+  };
 
   // --- ACTIONS ---
 
@@ -107,11 +204,10 @@ export default function SpectraManageQC() {
     if (!chatInput.trim()) return;
 
     const userQuestion = chatInput;
-    setChatInput(""); // Clear input
+    setChatInput("");
     setChatMessages((prev) => [...prev, { role: "user", text: userQuestion }]);
     setChatLoading(true);
 
-    // Prepare Context Data for AI
     const contextData = {
       total,
       passed,
@@ -126,7 +222,6 @@ export default function SpectraManageQC() {
       technicians: MOCK_TECHNICIANS.map((t) => t.name),
     };
 
-    // Call Server Action
     const response = await askSpectraAI(userQuestion, contextData);
 
     setChatLoading(false);
@@ -144,7 +239,6 @@ export default function SpectraManageQC() {
   };
 
   const handleUploadClick = () => fileInputRef.current?.click();
-  // ...existing code...
 
   const processImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -154,7 +248,6 @@ export default function SpectraManageQC() {
     setCapturedFrame(frameUrl);
     setLoading(true);
 
-    // Simulate Sensor Spike
     const mockSensorTemp = Math.floor(Math.random() * (95 - 40) + 40);
     const mockSensorNoise = Math.floor(Math.random() * (100 - 60) + 60);
 
@@ -169,24 +262,26 @@ export default function SpectraManageQC() {
 
     if (response.success && response.data) {
       let finalStatus = response.data.status;
+      let finalSeverity = response.data.severity; // ดึงค่าเดิมมาก่อน
       let extraReasons: string[] = [];
       let sensorAlerts: string[] = [];
 
-      // ตรวจสอบ Sensor และสร้างข้อความแจ้งเตือน
+      // ตรวจสอบ Sensor -> ถ้าเกินเกณฑ์ ปรับเป็น HIGH ทันที
       if (mockSensorTemp > 80) {
         finalStatus = "REJECT";
+        finalSeverity = "HIGH"; // Force High Severity
         const msg = `อุณหภูมิสูงผิดปกติ (${mockSensorTemp}°C)`;
         extraReasons.push(msg);
         sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
       }
       if (mockSensorNoise > 90) {
         finalStatus = "REJECT";
+        finalSeverity = "HIGH"; // Force High Severity
         const msg = `เสียงดังผิดปกติ (${mockSensorNoise}dB)`;
         extraReasons.push(msg);
         sensorAlerts.push(`⚠️ SYSTEM ALERT: ${msg}`);
       }
 
-      // รวมเหตุผลจาก AI และ Sensor ให้สอดคล้องกับสถานะ
       let finalReasoning = response.data.reasoning;
       if (sensorAlerts.length > 0) {
         finalReasoning = `${sensorAlerts.join(" ")}\n${
@@ -199,6 +294,7 @@ export default function SpectraManageQC() {
       const newRecord: QCResult = {
         ...response.data,
         status: finalStatus as "PASS" | "REJECT",
+        severity: finalSeverity, // ใช้ค่าที่อัปเดตแล้ว
         defects: combinedDefects,
         reasoning: finalReasoning,
         id: `LOG-${Math.floor(Math.random() * 10000)}`,
@@ -210,13 +306,19 @@ export default function SpectraManageQC() {
 
       setLatestResult(newRecord);
       setHistory((prev) => [newRecord, ...prev]);
+
       if (newRecord.status === "REJECT") {
         setNotifications((prev) => prev + 1);
+        // 🔥 Trigger Audio Alert (TTS + Siren 5s if HIGH)
+        triggerAudioAlert(
+          combinedDefects[0] || "Unknown Defect",
+          finalSeverity
+        );
       }
     }
     setLoading(false);
   };
-  // ...existing code...
+
   const generatePDF = async (record: QCResult) => {
     const tech = MOCK_TECHNICIANS.find((t) => t.id === record.inspectorId);
     const inspectorName = tech
@@ -325,6 +427,20 @@ export default function SpectraManageQC() {
             </p>
           </div>
           <div className="flex gap-3">
+            {/* --- AUDIO TOGGLE BUTTON --- */}
+            <button
+              onClick={() => setAudioEnabled(!audioEnabled)}
+              className={clsx(
+                "p-2 rounded-full border transition-colors relative",
+                audioEnabled
+                  ? "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                  : "bg-red-50 border-red-200 text-red-500"
+              )}
+              title={audioEnabled ? "Mute Alerts" : "Unmute Alerts"}
+            >
+              {audioEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+            </button>
+
             <button className="p-2 text-slate-500 hover:bg-slate-100 rounded-full relative">
               <Bell size={20} />
               {notifications > 0 && (
@@ -338,7 +454,7 @@ export default function SpectraManageQC() {
           </div>
         </header>
 
-        {/* Content Views (Monitor, Dashboard, etc.) - ใช้โค้ดเดิมของคุณ */}
+        {/* Content Views */}
         {currentView === "monitor" && (
           <MonitorView
             capturedFrame={capturedFrame}
@@ -352,6 +468,7 @@ export default function SpectraManageQC() {
             liveNoise={liveNoise}
             latestResult={latestResult}
             generatePDF={generatePDF}
+            handleAskManual={handleAskManual}
           />
         )}
 
@@ -366,7 +483,7 @@ export default function SpectraManageQC() {
             COLORS={COLORS}
           />
         )}
-
+        {/* ... Rest of views (IssuesView, ReportsView) ... */}
         {currentView === "issues" && (
           <IssuesView
             history={history}

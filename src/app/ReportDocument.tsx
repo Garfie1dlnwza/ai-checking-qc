@@ -1,9 +1,27 @@
-
-import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer';
 import { QCResult, ReportMeta } from '@/types/qc';
 
+// 1. ลงทะเบียนฟอนต์ภาษาไทย (Sarabun)
+// เราใช้ CDN เพื่อให้ไม่ต้องดาวน์โหลดไฟล์ลงเครื่อง แต่ถ้าจะให้เร็วที่สุดควรโหลด .ttf ไว้ในโปรเจกต์
+Font.register({
+  family: 'Sarabun',
+  fonts: [
+    { 
+      src: 'https://cdn.jsdelivr.net/npm/@fontsource/sarabun/files/sarabun-thai-400-normal.woff' 
+    },
+    { 
+      src: 'https://cdn.jsdelivr.net/npm/@fontsource/sarabun/files/sarabun-thai-700-normal.woff', 
+      fontWeight: 'bold' 
+    }
+  ]
+});
+
 const styles = StyleSheet.create({
-  page: { padding: 30, fontSize: 10, fontFamily: 'Helvetica' },
+  page: { 
+    padding: 30, 
+    fontSize: 10, 
+    fontFamily: 'Sarabun' // <--- 2. เปลี่ยนจาก Helvetica เป็น Sarabun
+  },
   header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20, borderBottomWidth: 2, borderBottomColor: '#111', paddingBottom: 10 },
   title: { fontSize: 18, fontWeight: 'bold' },
   subTitle: { fontSize: 10, color: '#666' },
@@ -23,8 +41,8 @@ const styles = StyleSheet.create({
 });
 
 interface ReportProps {
-  data: QCResult; // The AI Result
-  meta: ReportMeta; // The Manual User Input
+  data: QCResult;
+  meta: ReportMeta;
   imageSrc: string | null;
 }
 
@@ -39,15 +57,15 @@ export const QCReportDocument = ({ data, meta, imageSrc }: ReportProps) => (
           <Text style={styles.subTitle}>Spectra-Q Automated Analysis System</Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text>Date: {new Date(data.timestamp).toLocaleDateString()}</Text>
-          <Text>Time: {new Date(data.timestamp).toLocaleTimeString()}</Text>
+          <Text>Date: {new Date(data.timestamp).toLocaleDateString('th-TH')}</Text>
+          <Text>Time: {new Date(data.timestamp).toLocaleTimeString('th-TH')}</Text>
           <Text>Report ID: #{Math.floor(Math.random() * 10000)}</Text>
         </View>
       </View>
 
       {/* 1. Project & Activity Details */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>1. PROJECT DETAILS & ACTIVITY</Text>
+        <Text style={styles.sectionTitle}>1. PROJECT DETAILS & ACTIVITY (รายละเอียดโครงการ)</Text>
         <View style={styles.row}><Text style={styles.label}>Project Name:</Text><Text style={styles.value}>{meta.project}</Text></View>
         <View style={styles.row}><Text style={styles.label}>Location/Site:</Text><Text style={styles.value}>{meta.location}</Text></View>
         <View style={styles.row}><Text style={styles.label}>Activity On-going:</Text><Text style={styles.value}>{meta.activity}</Text></View>
@@ -56,7 +74,7 @@ export const QCReportDocument = ({ data, meta, imageSrc }: ReportProps) => (
 
       {/* 2. Resources */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>2. RESOURCES & SAFETY</Text>
+        <Text style={styles.sectionTitle}>2. RESOURCES & SAFETY (ทรัพยากรและความปลอดภัย)</Text>
         <View style={styles.grid}>
           <View style={styles.gridItem}>
              <Text style={styles.label}>Labor Hours:</Text><Text>{meta.laborHours}</Text>
@@ -72,7 +90,7 @@ export const QCReportDocument = ({ data, meta, imageSrc }: ReportProps) => (
 
       {/* 3. AI Inspection Results */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>3. AI INSPECTION FINDINGS</Text>
+        <Text style={styles.sectionTitle}>3. AI INSPECTION FINDINGS (ผลการตรวจสอบ AI)</Text>
         <View style={styles.row}>
            <Text style={styles.label}>Overall Status:</Text>
            <Text style={data.status === 'PASS' ? styles.statusPass : styles.statusFail}>{data.status} (Confidence: {(data.confidence * 100).toFixed(1)}%)</Text>
@@ -87,12 +105,12 @@ export const QCReportDocument = ({ data, meta, imageSrc }: ReportProps) => (
         )}
         
         <View style={{ marginTop: 5 }}>
-          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>Reasoning:</Text>
+          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>Reasoning (เหตุผลการวิเคราะห์):</Text>
           <Text style={{ color: '#444' }}>{data.reasoning}</Text>
         </View>
 
         <View style={{ marginTop: 5 }}>
-          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>Recommended Actions:</Text>
+          <Text style={{ fontWeight: 'bold', marginBottom: 2 }}>Recommended Actions (ข้อแนะนำ):</Text>
           {data.solution.recommended_actions.map((action: string, i: number) => (
              <Text key={i}>- {action}</Text>
           ))}
@@ -101,7 +119,7 @@ export const QCReportDocument = ({ data, meta, imageSrc }: ReportProps) => (
 
       {/* 4. Visual Evidence */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>4. VISUAL EVIDENCE</Text>
+        <Text style={styles.sectionTitle}>4. VISUAL EVIDENCE (หลักฐานภาพถ่าย)</Text>
         {imageSrc && (
           <View style={styles.imageContainer}>
             <Image src={imageSrc} style={styles.image} />
