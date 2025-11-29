@@ -6,11 +6,16 @@ export interface QCListEntry {
 }
 
 export interface QCResult {
+  id: string;
+  inspectorId: string;
+  ticketStatus: 'OPEN' | 'RESOLVED' | 'ARCHIVED';
   timestamp: string;
   status: QCStatus;
   confidence: number;
   defects: string[];
   reasoning: string;
+  temperature: number;
+  noise_level: number;
   action_command: string;
   root_cause: string;
   severity: 'LOW' | 'MEDIUM' | 'HIGH';
@@ -41,4 +46,11 @@ export interface QCReportPayload {
   data: QCResult;
   meta: ReportMeta;
   image?: string | null;
+}
+
+export interface Technician {
+  id: string;
+  name: string;
+  role?: string;
+  avatar?: string;
 }
