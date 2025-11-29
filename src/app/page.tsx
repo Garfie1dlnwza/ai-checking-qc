@@ -2,7 +2,11 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { ChangeEvent } from "react";
-import { analyzeImage, askSpectraAI } from "./actions";
+import {
+  analyzeImage,
+  askSpectraAI,
+  planProductionSchedule,
+} from "./actions";
 import { QCReportDocument } from "./ReportDocument";
 import { pdf } from "@react-pdf/renderer";
 import {
@@ -66,6 +70,8 @@ export default function SpectraManageQC() {
   const inspectionProfile = INSPECTION_PROFILES[inspectionType];
   const [liveTemp, setLiveTemp] = useState(45);
   const [liveNoise, setLiveNoise] = useState(60);
+  const [plannerPlan, setPlannerPlan] = useState<any | null>(null);
+  const [plannerLoading, setPlannerLoading] = useState(false);
 
   // --- NEW STATE: Audio Control ---
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -308,6 +314,22 @@ export default function SpectraManageQC() {
       temperature: mockSensorTemp,
       noise_level: mockSensorNoise,
     };
+  };
+
+  const handleGeneratePlan = async (formData: FormData) => {
+    setPlannerLoading(true);
+    const response = await planProductionSchedule(formData);
+    setPlannerLoading(false);
+    if (response.success && response.data) {
+      setPlannerPlan(response.data);
+    } else {
+      setPlannerPlan({
+        summary: "ไม่สามารถสร้างแผนได้ โปรดลองใหม่",
+        gantt_chart: [],
+        worker_moves: [],
+        impact_analysis: { delay_minutes: 0, cost_impact: "N/A" },
+      });
+    }
   };
 
   // --- ACTIONS ---
@@ -667,6 +689,9 @@ export default function SpectraManageQC() {
             chartDataTemp={chartDataTemp}
             chartDataDefects={chartDataDefects}
             COLORS={COLORS}
+            plannerLoading={plannerLoading}
+            plannerPlan={plannerPlan}
+            onGeneratePlan={handleGeneratePlan}
           />
         )}
         {/* ... Rest of views (IssuesView, ReportsView) ... */}

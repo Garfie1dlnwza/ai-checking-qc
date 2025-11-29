@@ -122,3 +122,91 @@ export async function askSpectraAI(question: string, contextData: any) {
     return { success: false, answer: "เกิดข้อผิดพลาดในการเชื่อมต่อกับ AI" };
   }
 }
+
+// --- 3. Production Planner Agent (Multimodal: Vision + Context) ---
+export async function planProductionSchedule(formData: FormData) {
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const imageFile = formData.get('image') as File | null;
+    const events = (formData.get('events') as string) || '[]';
+    const currentBacklog = (formData.get('backlog') as string) || '[]';
+    const workers = (formData.get('workers') as string) || '[]';
+
+    let prompt = `
+      You are the "Master Production Scheduler Agent" for a smart factory.
+      
+      CONTEXT:
+      - Triggers/Events: ${events} (These are critical disruptions)
+      - Available Workers: ${workers}
+      - Digital Backlog: ${currentBacklog}
+    `;
+
+    let promptPushed = false;
+    const parts: any[] = [];
+
+    if (imageFile) {
+      const arrayBuffer = await imageFile.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const base64Image = buffer.toString('base64');
+
+      prompt += `
+      
+      VISUAL INPUT:
+      I have uploaded an image of the current Physical Kanban Board / Schedule Whiteboard.
+      1. OCR and analyze the image to identify any handwritten "Urgent" tags or physical constraints not in the digital backlog.
+      2. Merge this visual info with the digital backlog.
+      `;
+
+      promptPushed = true;
+      parts.push(prompt);
+      parts.push({ inlineData: { data: base64Image, mimeType: imageFile.type } });
+    } else {
+      prompt += `\nNo visual schedule provided. Rely on digital backlog only.`;
+    }
+
+    prompt += `
+      MISSION:
+      Re-calculate the production schedule for the next 4 hours based on the Events.
+      
+      OUTPUT RULES:
+      Return ONLY JSON with this schema:
+      {
+        "summary": "Executive summary of the change (Thai)",
+        "gantt_chart": [
+          { 
+            "line_name": "Line 1", 
+            "tasks": [
+               { "label": "Job A", "start_offset_min": 0, "duration_min": 60, "status": "running", "color": "blue" },
+               { "label": "Maintenance", "start_offset_min": 60, "duration_min": 30, "status": "warning", "color": "red" }
+            ]
+          },
+          { "line_name": "Line 2", "tasks": [] }
+        ],
+        "worker_moves": [
+          { "worker": "Name", "from": "Location A", "to": "Location B", "reason": "Reason in Thai" }
+        ],
+        "impact_analysis": {
+            "delay_minutes": 45,
+            "cost_impact": "Medium"
+        }
+      }
+    `;
+
+    if (!promptPushed) {
+      parts.push(prompt);
+    } else {
+      // If we already pushed prompt before adding mission, replace the first element with full prompt
+      parts[0] = prompt;
+    }
+
+    const result = await model.generateContent(parts);
+    const text = result.response.text();
+    const jsonStr = text.replace(/```json|```/g, "").trim();
+    const data = JSON.parse(jsonStr);
+    return { success: true, data };
+  } catch (error) {
+    console.error("Planner Error:", error);
+    return { success: false, error: "Failed to generate production plan" };
+  }
+}
